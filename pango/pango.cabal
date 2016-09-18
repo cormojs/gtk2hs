@@ -1,12 +1,12 @@
 Name:           pango
-Version:        0.13.1.1
+Version:        0.13.3.0
 License:        LGPL-2.1
 License-file:   COPYING
 Copyright:      (c) 2001-2010 The Gtk2Hs Team
 Author:         Axel Simon, Duncan Coutts
 Maintainer:     gtk2hs-users@lists.sourceforge.net
 Build-Type:     Custom
-Cabal-Version:  >= 1.18
+Cabal-Version:  >= 1.24
 Stability:      stable
 homepage:       http://projects.haskell.org/gtk2hs/
 bug-reports:    https://github.com/gtk2hs/gtk2hs/issues
@@ -19,7 +19,6 @@ Category:       Graphics
 Tested-With:    GHC == 7.0.4, GHC == 7.2.2, GHC == 7.4.1
 extra-source-files: template-hsc-gtk2hs.h
                     hspango.h
-                    SetupWrapper.hs SetupMain.hs Gtk2HsSetup.hs
                     hierarchy.list
 
 x-Types-File:      Graphics/Rendering/Pango/Types.chs
@@ -39,6 +38,12 @@ Source-Repository head
 Flag new-exception
   Description:  Enable build with a base library that contains the new exception library.
 
+custom-setup
+  setup-depends: base >= 4.6,
+                 Cabal >= 1.24 && < 1.25,
+                 filepath >= 1.3 && < 1.5,
+                 gtk2hs-buildtools >= 0.13.2.0 && < 0.14
+
 Library
         build-depends:  base >= 4 && < 5,
                         process, directory, array, containers, pretty, mtl,
@@ -51,8 +56,6 @@ Library
           cpp-options:    -DHAVE_NEW_CONTROL_EXCEPTION
         else
           build-depends:  base < 4
-
-        build-tools:    gtk2hsC2hs >= 0.13.13, gtk2hsTypeGen
 
         exposed-modules: Graphics.Rendering.Pango
                          Graphics.Rendering.Pango.Font

@@ -1,9 +1,4 @@
 {-# LANGUAGE CPP, ViewPatterns #-}
-
-#ifndef CABAL_VERSION_CHECK
-#error This module has to be compiled via the Setup.hs program which generates the gtk2hs-macros.h file
-#endif
-
 -- | Build a Gtk2hs package.
 --
 module Gtk2HsSetup (
@@ -22,11 +17,7 @@ import Distribution.InstalledPackageInfo ( importDirs,
                                            libraryDirs,
                                            extraLibraries,
                                            extraGHCiLibraries )
-#if CABAL_VERSION_CHECK(1,23,0)
 import Distribution.Simple.PackageIndex ( lookupUnitId )
-#else
-import Distribution.Simple.PackageIndex ( lookupInstalledPackageId )
-#endif
 import Distribution.PackageDescription as PD ( PackageDescription(..),
                                                updatePackageDescription,
                                                BuildInfo(..),
@@ -36,7 +27,9 @@ import Distribution.PackageDescription as PD ( PackageDescription(..),
 import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(withPackageDB, buildDir, localPkgDescr, installedPkgs, withPrograms),
                                            InstallDirs(..),
                                            componentPackageDeps,
-                                           absoluteInstallDirs)
+                                           absoluteInstallDirs,
+                                           relocatable,
+                                           compiler)
 import Distribution.Simple.Compiler  ( Compiler(..) )
 import Distribution.Simple.Program (
   Program(..), ConfiguredProgram(..),
@@ -66,25 +59,28 @@ import Data.Char (isAlpha, isNumber)
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Distribution.Simple.LocalBuildInfo as LBI
+import qualified Distribution.InstalledPackageInfo as IPI
+       (installedUnitId)
 import Distribution.Simple.Compiler (compilerVersion)
 
 import Control.Applicative ((<$>))
 
-#if CABAL_VERSION_CHECK(1,17,0)
 import Distribution.Simple.Program.Find ( defaultProgramSearchPath )
+import Gtk2HsC2Hs (c2hsMain)
+import HookGenerator (hookGen)
+import TypeGen (typeGen)
+import UNames (unsafeResetRootNameSupply)
+
 onDefaultSearchPath f a b = f a b defaultProgramSearchPath
 libraryConfig lbi = case [clbi | (LBI.CLibName, clbi, _) <- LBI.componentsConfigs lbi] of
   [clbi] -> Just clbi
   _ -> Nothing
-#else
-onDefaultSearchPath = id
-libraryConfig = LBI.libraryConfig
-#endif
 
 -- the name of the c2hs pre-compiled header file
 precompFile = "precompchs.bin"
 
 gtk2hsUserHooks = simpleUserHooks {
+    -- hookedPrograms is only included for backwards compatibility with older Setup.hs.
     hookedPrograms = [typeGenProgram, signalGenProgram, c2hsLocal],
     hookedPreProcessors = [("chs", ourC2hs)],
     confHook = \pd cf ->
@@ -170,34 +166,27 @@ register pkg@PackageDescription { library       = Just lib  } lbi regFlags
   = do
     let clbi = LBI.getComponentLocalBuildInfo lbi LBI.CLibName
 
+    absPackageDBs       <- absolutePackageDBPaths packageDbs
     installedPkgInfoRaw <- generateRegistrationInfo
-#if CABAL_VERSION_CHECK(1,22,0)
-                           verbosity pkg lib lbi clbi inplace False distPref packageDb
-#else
-                           verbosity pkg lib lbi clbi inplace distPref
-#endif
+                           verbosity pkg lib lbi clbi inplace reloc distPref
+                           (registrationPackageDB absPackageDBs)
 
     dllsInScope <- getSearchPath >>= (filterM doesDirectoryExist) >>= getDlls
     let libs = fixLibs dllsInScope (extraLibraries installedPkgInfoRaw)
         installedPkgInfo = installedPkgInfoRaw {
                                 extraGHCiLibraries = libs }
 
+    when (fromFlag (regPrintId regFlags)) $ do
+      putStrLn (display (IPI.installedUnitId installedPkgInfo))
+
      -- Three different modes:
     case () of
      _ | modeGenerateRegFile   -> writeRegistrationFile installedPkgInfo
        | modeGenerateRegScript -> die "Generate Reg Script not supported"
-       | otherwise             -> registerPackage verbosity
-#if CABAL_VERSION_CHECK(1,23,0)
-                                    (LBI.compiler lbi) (withPrograms lbi)
-                                    False packageDbs installedPkgInfo
-#else
-                                    installedPkgInfo pkg lbi inplace
-# if CABAL_VERSION_CHECK(1,10,0)
-                                    packageDbs
-# else
-                                    packageDb
-# endif
-#endif
+       | otherwise             -> do
+           setupMessage verbosity "Registering" (packageId pkg)
+           registerPackage verbosity (compiler lbi) (withPrograms lbi) False
+                           packageDbs installedPkgInfo
 
   where
     modeGenerateRegFile = isJust (flagToMaybe (regGenPkgConf regFlags))
@@ -205,9 +194,9 @@ register pkg@PackageDescription { library       = Just lib  } lbi regFlags
                                     (fromFlag (regGenPkgConf regFlags))
     modeGenerateRegScript = fromFlag (regGenScript regFlags)
     inplace   = fromFlag (regInPlace regFlags)
+    reloc     = relocatable lbi
     packageDbs = nub $ withPackageDB lbi
                     ++ maybeToList (flagToMaybe  (regPackageDB regFlags))
-    packageDb = registrationPackageDB packageDbs
     distPref  = fromFlag (regDistPref regFlags)
     verbosity = fromFlag (regVerbosity regFlags)
 
@@ -258,16 +247,10 @@ runC2HS bi lbi (inDir, inFile)  (outDir, outFile) verbosity = do
   -- we assume that these are installed in the same place as .hi files
   let chiDirs = [ dir |
                   ipi <- maybe [] (map fst . componentPackageDeps) (libraryConfig lbi),
-                  dir <- maybe [] importDirs $
-#if CABAL_VERSION_CHECK(1,23,0)
-                           lookupUnitId
-#else
-                           lookupInstalledPackageId
-#endif
-                             (installedPkgs lbi) ipi
-                ]
+                  dir <- maybe [] importDirs (lookupUnitId (installedPkgs lbi) ipi) ]
   (gccProg, _) <- requireProgram verbosity gccProgram (withPrograms lbi)
-  rawSystemProgramConf verbosity c2hsLocal (withPrograms lbi) $
+  unsafeResetRootNameSupply
+  c2hsMain $
        map ("--include=" ++) (outDir:chiDirs)
     ++ [ "--cpp=" ++ programPath gccProg, "--cppopts=-E" ]
     ++ ["--cppopts=" ++ opt | opt <- getCppOptions bi lbi]
@@ -275,6 +258,7 @@ runC2HS bi lbi (inDir, inFile)  (outDir, outFile) verbosity = do
         "--output=" ++ newOutFile,
         "--precomp=" ++ buildDir lbi </> precompFile,
         header, inDir </> inFile]
+  return ()
 
 getCppOptions :: BuildInfo -> LocalBuildInfo -> [String]
 getCppOptions bi lbi
@@ -287,17 +271,9 @@ getCppOptions bi lbi
   ghcDefine _ = __GLASGOW_HASKELL__
 
   ghcVersion :: CompilerId -> [Int]
--- This version is nicer, but we need to know the Cabal version that includes the new CompilerId
--- #if CABAL_VERSION_CHECK(1,19,2)
---   ghcVersion (CompilerId GHC v _) = versionBranch v
---   ghcVersion (CompilerId _ _ (Just c)) = ghcVersion c
--- #else
---   ghcVersion (CompilerId GHC v) = versionBranch v
--- #endif
---   ghcVersion _ = []
--- This version should work fine for now
-  ghcVersion = concat . take 1 . map (read . (++"]") . takeWhile (/=']')) . catMaybes
-               . map (stripPrefix "CompilerId GHC (Version {versionBranch = ") . tails . show
+  ghcVersion (CompilerId GHCJS v) = drop 3 $ versionBranch v
+  ghcVersion (CompilerId GHC v) = versionBranch v
+  ghcVersion _ = error "Not GHC"
 
 installCHI :: PackageDescription -- ^information from the .cabal file
         -> LocalBuildInfo -- ^information from the configure step
@@ -319,23 +295,6 @@ installCHI _ _ _ _ = return ()
 ------------------------------------------------------------------------------
 -- Generating the type hierarchy and signal callback .hs files.
 ------------------------------------------------------------------------------
-
-typeGenProgram :: Program
-typeGenProgram = simpleProgram "gtk2hsTypeGen"
-
-signalGenProgram :: Program
-signalGenProgram = simpleProgram "gtk2hsHookGenerator"
-
-c2hsLocal :: Program
-c2hsLocal = (simpleProgram "gtk2hsC2hs") {
-    programFindVersion = findProgramVersion "--version" $ \str ->
-      -- Invoking "gtk2hsC2hs --version" gives a string like:
-      -- C->Haskell Compiler, version 0.13.4 (gtk2hs branch) "Bin IO", 13 Nov 2004
-      case words str of
-        (_:_:_:ver:_) -> ver
-        _             -> ""
-  }
-
 
 genSynthezisedFiles :: Verbosity -> PackageDescription -> LocalBuildInfo -> IO ()
 genSynthezisedFiles verb pd lbi = do
@@ -363,22 +322,22 @@ genSynthezisedFiles verb pd lbi = do
                           "x-signals-" `isPrefixOf` field,
                           field /= "x-signals-file"]
 
-      genFile :: Program -> [ProgArg] -> FilePath -> IO ()
+      genFile :: ([String] -> IO String) -> [ProgArg] -> FilePath -> IO ()
       genFile prog args outFile = do
-         res <- rawSystemProgramStdoutConf verb prog (withPrograms lbi) args
+         res <- prog args
          rewriteFile outFile res
 
   forM_ (filter (\(tag,_) -> "x-types-" `isPrefixOf` tag && "file" `isSuffixOf` tag) xList) $
     \(fileTag, f) -> do
       let tag = reverse (drop 4 (reverse fileTag))
       info verb ("Ensuring that class hierarchy in "++f++" is up-to-date.")
-      genFile typeGenProgram (typeOpts tag) f
+      genFile typeGen (typeOpts tag) f
 
   case lookup "x-signals-file" xList of
     Nothing -> return ()
     Just f -> do
       info verb ("Ensuring that callback hooks in "++f++" are up-to-date.")
-      genFile signalGenProgram signalsOpts f
+      genFile hookGen signalsOpts f
 
   writeFile "gtk2hs_macros.h" $ generateMacros cPkgs
 
@@ -501,7 +460,7 @@ sortTopological ms = reverse $ fst $ foldl visit ([], S.empty) (map mdOriginal m
           where
             (out',visited') = foldl visit (out, m `S.insert` visited) (mdRequires md)
 
--- Check user whether install gtk2hs-buildtools correctly.
+-- Included for backwards compatibility with older Setup.hs.
 checkGtk2hsBuildtools :: [Program] -> IO ()
 checkGtk2hsBuildtools programs = do
   programInfos <- mapM (\ prog -> do
@@ -514,3 +473,18 @@ checkGtk2hsBuildtools programs = do
         exitFailure
   forM_ programInfos $ \ (name, location) ->
     when (isNothing location) (printError name)
+
+-- Included for backwards compatibility with older Setup.hs.
+typeGenProgram :: Program
+typeGenProgram = simpleProgram "gtk2hsTypeGen"
+
+-- Included for backwards compatibility with older Setup.hs.
+signalGenProgram :: Program
+signalGenProgram = simpleProgram "gtk2hsHookGenerator"
+
+-- Included for backwards compatibility with older Setup.hs.
+-- We are not going to use this, so reporting the version we will use
+c2hsLocal :: Program
+c2hsLocal = (simpleProgram "gtk2hsC2hs") {
+    programFindVersion = \_ _ -> return . Just $ Version [0,13,13] []
+  }

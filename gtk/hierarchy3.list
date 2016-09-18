@@ -37,6 +37,7 @@
         GdkWindow as DrawWindow, gdk_window_get_type
         GdkGLPixmap		if gtkglext
         GdkGLWindow		if gtkglext
+        GdkGLContext    if gtk-3.16
 	GdkScreen		
 	GdkDisplay		
 	GdkVisual
@@ -72,6 +73,7 @@
                 GtkContainer
 				    GtkToolPalette		
 				    GtkToolItemGroup	
+                    GtkStack                            if gtk-3.10
                     WebKitWebView as WebView, webkit_web_view_get_type            if webkit
                     GtkBin
                         GtkAlignment
@@ -116,6 +118,7 @@
 			    GtkSeparatorToolItem	
 			GtkMozEmbed		if mozembed
 			VteTerminal as Terminal if vte
+                        GtkStackSwitcher        if gtk-3.10
                     GtkBox
                         GtkButtonBox
                             GtkHButtonBox
@@ -149,6 +152,7 @@
                     GtkTreeView
                 GtkCalendar
                 GtkCellView		
+		GtkGLArea if gtk-3.16
 		GtkDrawingArea
 				GtkSpinner		
                 GtkEntry

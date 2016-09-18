@@ -1,12 +1,12 @@
 Name:           gtk
-Version:        0.14.2
+Version:        0.14.5
 License:        LGPL-2.1
 License-file:   COPYING
 Copyright:      (c) 2001-2010 The Gtk2Hs Team
 Author:         Axel Simon, Duncan Coutts and many others
 Maintainer:     gtk2hs-users@lists.sourceforge.net
 Build-Type:     Custom
-Cabal-Version:  >= 1.18
+Cabal-Version:  >= 1.24
 Stability:      provisional
 homepage:       http://projects.haskell.org/gtk2hs/
 bug-reports:    https://github.com/gtk2hs/gtk2hs/issues
@@ -20,7 +20,6 @@ Extra-Source-Files: hsgtk.h
                     Graphics/UI/Gtk/ModelView/Gtk2HsStore.h
                     Graphics/UI/Gtk/General/hsgthread.h
                     template-hsc-gtk2hs.h
-                    SetupWrapper.hs SetupMain.hs Gtk2HsSetup.hs
                     marshal.list
                     hierarchy.list
 
@@ -134,6 +133,11 @@ Flag fmode-binary
                option off.
   Default: True
 
+custom-setup
+  setup-depends: base >= 4.6,
+                 Cabal >= 1.24 && < 1.25,
+                 gtk2hs-buildtools >= 0.13.2.0 && < 0.14
+
 Library
         build-depends:  base >= 4 && < 5,
                         array, containers, mtl, bytestring,
@@ -146,9 +150,6 @@ Library
           cpp-options:    -DHAVE_GIO
         if flag(have-quartz-gtk)
           cpp-options:    -DHAVE_QUARTZ_GTK
-
-        build-tools:    gtk2hsC2hs >= 0.13.13,
-                        gtk2hsHookGenerator, gtk2hsTypeGen
 
         exposed-modules:
           Graphics.UI.Gtk

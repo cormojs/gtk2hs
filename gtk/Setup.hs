@@ -1,10 +1,8 @@
--- Standard setup file for a Gtk2Hs module.
+-- Adjustments specific to this package,
+-- all Gtk2Hs-specific boilerplate is kept in
+-- gtk2hs-buildtools:Gtk2HsSetup
 --
--- See also:
---  * SetupMain.hs    : the real Setup script for this package
---  * Gtk2HsSetup.hs  : Gtk2Hs-specific boilerplate
---  * SetupWrapper.hs : wrapper for compat with various ghc/cabal versions
+import Gtk2HsSetup ( gtk2hsUserHooks )
+import Distribution.Simple ( defaultMainWithHooks )
 
-import SetupWrapper ( setupWrapper )
-
-main = setupWrapper "SetupMain.hs"
+main = defaultMainWithHooks gtk2hsUserHooks

@@ -135,7 +135,8 @@ Library
                         text >= 0.11.0.6 && < 1.3,
                         glib  >= 0.13.0.0 && < 0.14,
                         pango >= 0.13.0.0 && < 0.14,
-                        cairo >= 0.13.0.0 && < 0.14
+                        cairo >= 0.13.0.0 && < 0.14,
+                        gtk2hs-buildtools
         if flag(have-gio)
           build-depends: gio >= 0.13.0 && < 0.14
           cpp-options:    -DHAVE_GIO
